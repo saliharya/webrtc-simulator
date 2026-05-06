@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const stageRef = ref(null)
 const videoRef = ref(null)
+const keyboardInputRef = ref(null)
 const bridgeMissing = ref(false)
 const isFullscreen = ref(false)
 const statsTimer = ref(null)
@@ -121,6 +122,42 @@ const forwardWheel = (event) => {
   bridge?.handleWheel?.(event)
 }
 
+const forwardTouchStart = (event) => {
+  const bridge = getBridge()
+  bridge?.handleTouchStart?.(event)
+}
+
+const forwardTouchMove = (event) => {
+  const bridge = getBridge()
+  bridge?.handleTouchMove?.(event)
+}
+
+const forwardTouchEnd = (event) => {
+  const bridge = getBridge()
+  bridge?.handleTouchEnd?.(event)
+}
+
+const openKeyboard = () => {
+  const bridge = getBridge()
+  const typed = window.prompt('Ketik teks untuk dikirim ke perangkat:', '')
+  if (typed !== null && typed.length > 0) {
+    bridge?.handleTextInput?.(typed)
+  }
+  stageRef.value?.focus?.()
+  keyboardInputRef.value?.focus?.()
+}
+
+const forwardKeyboardText = (event) => {
+  const bridge = getBridge()
+  const value = event?.target?.value ?? ''
+  if (!value) {
+    return
+  }
+  bridge?.handleTextInput?.(value)
+  event.target.value = ''
+  stageRef.value?.focus?.()
+}
+
 const closeTab = () => {
   window.close()
 }
@@ -182,6 +219,9 @@ onBeforeUnmount(() => {
 
         <div class="viewer-actions">
           <span :class="qualityBadgeClass">{{ stats.qualityLabel || 'offline' }}</span>
+          <button class="ghost-button" type="button" @click="openKeyboard">
+            Keyboard
+          </button>
           <button class="ghost-button" type="button" @click="toggleFullscreen">
             {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
           </button>
@@ -209,6 +249,16 @@ onBeforeUnmount(() => {
           @click="stageRef?.focus()"
           @contextmenu.prevent
         >
+          <input
+            ref="keyboardInputRef"
+            class="keyboard-proxy"
+            type="text"
+            autocomplete="off"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            @input="forwardKeyboardText"
+          />
           <video
             ref="videoRef"
             autoplay
@@ -220,6 +270,10 @@ onBeforeUnmount(() => {
             @click="stageRef?.focus()"
             @mousedown.prevent="forwardMouseButton('mouse.down', $event)"
             @mouseup.prevent="forwardMouseButton('mouse.up', $event)"
+            @touchstart.prevent="forwardTouchStart"
+            @touchmove.prevent="forwardTouchMove"
+            @touchend.prevent="forwardTouchEnd"
+            @touchcancel.prevent="forwardTouchEnd"
             @wheel.prevent="forwardWheel"
             @contextmenu.prevent
           />
@@ -232,13 +286,9 @@ onBeforeUnmount(() => {
             aria-hidden="true"
           />
 
-          <div class="viewer-overlay">
-            <strong>{{ status.screenReady ? 'Remote screen live' : 'Menunggu screen ready' }}</strong>
-            <p>
-              Gunakan keyboard, mouse, dan wheel langsung di area ini. Input tetap diproses oleh koneksi yang hidup di tab
-              simulator utama.
-            </p>
-          </div>
+          <span class="viewer-live-pill">
+            {{ status.screenReady ? 'Live' : 'Waiting stream' }}
+          </span>
         </section>
 
         <aside class="viewer-sidebar">
@@ -283,13 +333,15 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .viewer-page {
-  min-height: 100vh;
-  padding: 18px;
+  height: 100dvh;
+  padding: clamp(8px, 1.6vw, 18px);
+  box-sizing: border-box;
 }
 
 .viewer-shell {
-  min-height: calc(100vh - 36px);
+  height: 100%;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
   border: 1px solid var(--line);
   border-radius: 28px;
@@ -343,16 +395,18 @@ onBeforeUnmount(() => {
 }
 
 .viewer-layout {
-  flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) 340px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 18px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .viewer-stage {
   position: relative;
-  min-height: 68vh;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 24px;
@@ -360,6 +414,7 @@ onBeforeUnmount(() => {
     linear-gradient(180deg, rgba(247, 251, 255, 0.96), rgba(227, 238, 250, 0.94)),
     radial-gradient(circle at center, rgba(76, 154, 255, 0.12), transparent 60%);
   outline: none;
+  touch-action: none;
 }
 
 .viewer-stage:focus {
@@ -370,10 +425,21 @@ onBeforeUnmount(() => {
 .viewer-video {
   width: 100%;
   height: 100%;
-  min-height: 68vh;
+  min-height: 0;
   object-fit: contain;
   display: block;
   background: #dfeaf7;
+  touch-action: none;
+}
+
+.keyboard-proxy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  top: -100px;
+  left: -100px;
 }
 
 .viewer-video--interactive {
@@ -405,32 +471,33 @@ onBeforeUnmount(() => {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Cpath d='M2 2l5.5 13 2-5.5L15 7.5z' fill='white' stroke='%23333' stroke-width='1'/%3E%3C/svg%3E") no-repeat top left / contain;
 }
 
-.viewer-overlay {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 18px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(46, 108, 181, 0.14);
-  pointer-events: none;
-}
-
-.viewer-overlay strong {
-  display: block;
-  margin-bottom: 6px;
-}
-
-.viewer-overlay p,
+.viewer-live-pill,
 .metric-grid dt {
   color: var(--muted);
+}
+
+.viewer-live-pill {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 9;
+  pointer-events: none;
+  border: 1px solid rgba(46, 108, 181, 0.16);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .viewer-sidebar {
   display: grid;
   gap: 18px;
   align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .metric-panel {
@@ -502,11 +569,50 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) {
   .viewer-layout {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .viewer-topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .viewer-stage {
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-height: min(56dvh, 560px);
+  }
+
+  .viewer-sidebar {
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 760px), (max-height: 760px) {
+  .viewer-shell {
+    border-radius: 18px;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .viewer-topbar {
+    padding: 14px;
+    border-radius: 16px;
+    gap: 10px;
+  }
+
+  .viewer-stage {
+    border-radius: 16px;
+    max-height: min(50dvh, 420px);
+  }
+
+  .viewer-actions {
+    width: 100%;
+  }
+
+  .ghost-button {
+    padding: 10px 14px;
   }
 }
 </style>

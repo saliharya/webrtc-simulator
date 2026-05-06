@@ -871,8 +871,12 @@ export function useRemoteDesktopSimulator() {
       detachViewerElements,
       focusRemoteStage,
       handleKeyboard,
+      handleTextInput,
       handleMouseButton,
       handleMouseMove,
+      handleTouchStart,
+      handleTouchMove,
+      handleTouchEnd,
       handleWheel,
       getStatsSnapshot,
       getStatusSnapshot,
@@ -1896,10 +1900,24 @@ export function useRemoteDesktopSimulator() {
     }
   }
 
+  const extractClientPoint = (event) => {
+    if (typeof event?.clientX === 'number' && typeof event?.clientY === 'number') {
+      return { clientX: event.clientX, clientY: event.clientY }
+    }
+
+    const touch = event?.touches?.[0] ?? event?.changedTouches?.[0]
+    if (touch) {
+      return { clientX: touch.clientX, clientY: touch.clientY }
+    }
+
+    return { clientX: 0, clientY: 0 }
+  }
+
   const normalizedCoordinates = (event) => {
     const rect = getRenderedVideoRect(event.currentTarget)
-    const x = rect?.width ? (event.clientX - rect.left) / rect.width : 0
-    const y = rect?.height ? (event.clientY - rect.top) / rect.height : 0
+    const point = extractClientPoint(event)
+    const x = rect?.width ? (point.clientX - rect.left) / rect.width : 0
+    const y = rect?.height ? (point.clientY - rect.top) / rect.height : 0
 
     return {
       x: Number(Math.min(1, Math.max(0, x)).toFixed(4)),
@@ -1909,6 +1927,17 @@ export function useRemoteDesktopSimulator() {
 
   const handleKeyboard = (type, event) => {
     if (!canInteract.value) {
+      return
+    }
+
+    const isKeyDown = type === 'keyboard.key_down'
+    const isPrintable = event.key?.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey
+    if (isKeyDown && isPrintable) {
+      sendControlEvent({
+        type: 'keyboard.text',
+        text: event.key,
+        timestamp: Date.now(),
+      })
       return
     }
 
@@ -1972,6 +2001,66 @@ export function useRemoteDesktopSimulator() {
     })
   }
 
+  const handleTouchStart = (event) => {
+    if (!canInteract.value) {
+      return
+    }
+
+    focusRemoteStage()
+    sendControlEvent({
+      type: 'mouse.down',
+      button: 0,
+      ...normalizedCoordinates(event),
+      timestamp: Date.now(),
+    })
+  }
+
+  const handleTouchMove = (event) => {
+    if (!canInteract.value) {
+      return
+    }
+
+    const now = Date.now()
+    if (now - lastMouseMoveSentAt.value < 40) {
+      return
+    }
+
+    lastMouseMoveSentAt.value = now
+    sendControlEvent({
+      type: 'mouse.move',
+      ...normalizedCoordinates(event),
+      timestamp: now,
+    })
+  }
+
+  const handleTouchEnd = (event) => {
+    if (!canInteract.value) {
+      return
+    }
+
+    sendControlEvent({
+      type: 'mouse.up',
+      button: 0,
+      ...normalizedCoordinates(event),
+      timestamp: Date.now(),
+    })
+  }
+
+  const handleTextInput = (text) => {
+    if (!canInteract.value) {
+      return
+    }
+    const normalized = String(text ?? '')
+    if (!normalized.length) {
+      return
+    }
+    sendControlEvent({
+      type: 'keyboard.text',
+      text: normalized,
+      timestamp: Date.now(),
+    })
+  }
+
   const setRemoteStageElement = (element) => {
     remoteStageElement.value = element
   }
@@ -2023,8 +2112,12 @@ export function useRemoteDesktopSimulator() {
     generateAccessToken,
     eventHistory,
     handleKeyboard,
+    handleTextInput,
     handleMouseButton,
     handleMouseMove,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
     handleWheel,
     hasSession,
     iceConfigSummary,
