@@ -1384,8 +1384,16 @@ export function useRemoteDesktopSimulator() {
     }
 
     if (eventName === 'remote.desktop.session.connection_state') {
-      status.sessionStatus = data.status ?? status.sessionStatus
-      status.connectionState = data.connection_state ?? status.connectionState
+      const deviceConnectionState = data.connection_state ?? null
+      if (deviceConnectionState) {
+        status.connectionState = deviceConnectionState
+        if (deviceConnectionState === 'connected' || deviceConnectionState === 'completed') {
+          status.sessionStatus = 'connected'
+        }
+      }
+      if (data.status && data.status !== status.sessionStatus) {
+        status.sessionStatus = data.status
+      }
       status.signalingState = data.signaling_state ?? status.signalingState
       status.turnRelayUsed = data.turn_relay_used ?? status.turnRelayUsed
       return
